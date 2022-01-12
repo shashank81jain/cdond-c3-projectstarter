@@ -1,0 +1,45 @@
+---
+- name: "update apt packages."
+  become: yes
+  apt:
+    update_cache: yes
+
+- name: "upgrade packages"
+  become: yes
+  apt:
+    upgrade: "yes"
+
+- name: install nodejs and npm
+  become: yes
+  apt:
+    name: [nodejs, npm]
+
+- name: install pm2
+  become: yes
+  npm:
+    name: pm2
+    global: yes
+    production: yes
+    state: present
+
+- name: create a user for Prometheus Node Exporter and install Node Exporter binaries
+  become: yes
+  shell: |
+    useradd --no-create-home node_exporter
+    wget https://github.com/prometheus/node_exporter/releases/download/v1.0.1/node_exporter-1.0.1.linux-amd64.tar.gz
+    tar xzf node_exporter-1.0.1.linux-amd64.tar.gz
+    cp node_exporter-1.0.1.linux-amd64/node_exporter /usr/local/bin/node_exporter
+    rm -rf node_exporter-1.0.1.linux-amd64.tar.gz node_exporter-1.0.1.linux-amd64
+- name: copy prometheus service file to EC2 backend
+  become: yes
+  copy: 
+    src: node-exporter.service
+    dest: /etc/systemd/system/node-exporter.service
+
+- name: Configure systemd for Prometheus Node Exporter
+  become: yes
+  shell: |
+    systemctl daemon-reload
+    systemctl enable node-exporter
+    systemctl start node-exporter
+    systemctl status node-exporter
