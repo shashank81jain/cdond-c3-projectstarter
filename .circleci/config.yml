@@ -44,7 +44,7 @@ commands:
              cd ~/project/backend
              npm install
              npm run migrations:revert
-             echo "Migration reverted."
+             echo "Migration revert completed."
             fi
             
 jobs:
@@ -204,8 +204,35 @@ jobs:
             - project/.circleci/ansible/inventory.txt
       - destroy-environment:
           workflow_id: ${CIRCLE_WORKFLOW_ID:0:7}
-      - revert-migrations
       
+  configure-infrastructure:
+    docker:
+      - image: python:3.7-alpine3.11
+    steps:
+      - checkout
+      - add_ssh_keys:
+              fingerprints: ["9f:b3:95:84:4f:12:c7:a4:e9:00:7c:eb:06:93:6b:d0"]
+      - attach_workspace:
+          at: ~/
+      - run:
+          name: Install dependencies
+          command: |
+            apk add --update ansible
+            apk add --no-cache \
+                python3 \
+                py3-pip \
+            && pip3 install --upgrade pip \
+            && pip3 install awscli 
+      - run:
+          name: Configure server
+          no_output_timeout: 30m
+          command: |
+            cd .circleci/ansible
+            ansible-playbook -i inventory.txt configure-server.yml
+      # rollback on failure
+      - destroy-environment:
+          workflow_id: ${CIRCLE_WORKFLOW_ID:0:7}
+          
 workflows:
   default:
     jobs:
@@ -224,3 +251,5 @@ workflows:
           filters:
             branches:
               only: [master]
+      - configure-infrastructure:
+          requires: [deploy-infrastructure]
