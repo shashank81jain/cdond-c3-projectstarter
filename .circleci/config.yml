@@ -2,8 +2,7 @@ version: 2.1
 
 orbs: 
   slack: circleci/slack@4.5.2
-  aws-cli: circleci/aws-cli@1.3.0
-  
+
 commands:
   destroy-environment:
     description: Destroy back-end and front-end cloudformation stacks given a workflow ID.
@@ -44,8 +43,9 @@ commands:
              cd ~/project/backend
              npm install
              npm run migrations:revert
-             echo "Migration reverted."
+             echo "Migration revert completed."
             fi
+            
 jobs:
   build-frontend:
     docker:
@@ -63,13 +63,6 @@ jobs:
       - save_cache:
           paths: [frontend/node_modules]
           key: frontend-build
-      - slack/notify:
-          event: fail
-          mentions: '@UdacityProjectTeam'
-          template: basic_fail_1
-      - slack/notify:
-          event: pass
-          template: basic_success_1
 
   build-backend:
     docker:
@@ -87,7 +80,7 @@ jobs:
       - save_cache:
           paths: [backend/node_modules]
           key: backend-build
-  
+
   test-frontend:
     docker:
       - image: circleci/node:13.8.0
@@ -96,7 +89,7 @@ jobs:
       - restore_cache:
           keys: [frontend-test]
       - run:
-          name: run front-end tests
+          name: Run Frontend Test
           command: |
             cd frontend
             npm install
@@ -113,7 +106,7 @@ jobs:
       - restore_cache:
           keys: [backend-test]
       - run:
-          name: run backend tests
+          name: Run Backend Test
           command: |
             cd backend
             npm install
@@ -121,7 +114,7 @@ jobs:
       - save_cache:
           paths: [backend/node_modules]
           key: backend-test
-
+          
   scan-frontend:
     docker:
       - image: circleci/node:13.8.0
@@ -135,10 +128,16 @@ jobs:
             cd frontend
             npm install
             npm audit fix --audit-level=critical --force
-            npm audit --audit-level=critical
       - save_cache:
           paths: [frontend/node_modules]
           key: frontend-scan
+      - slack/notify:
+          event: fail
+          mentions: '@UdacityProjectTeam'
+          template: basic_fail_1
+      - slack/notify:
+          event: pass
+          template: basic_success_1
 
   scan-backend:
     docker:
@@ -150,17 +149,23 @@ jobs:
       - run:
           name: scan backend
           command: |
-            cd frontend
+            cd backend
             npm install
             npm audit fix --audit-level=critical --force
-            npm audit --audit-level=critical
       - save_cache:
           paths: [backend/node_modules]
           key: backend-scan
+      - slack/notify:
+          event: fail
+          mentions: '@UdacityProjectTeam'
+          template: basic_fail_1
+      - slack/notify:
+          event: pass
+          template: basic_success_1
 
   deploy-infrastructure:
     docker:
-      - image: amazon/aws-cli:2.0.6
+      - image: amazon/aws-cli
     steps:
       - checkout
       - run:
@@ -180,7 +185,7 @@ jobs:
               --stack-name udapeople-frontend-${CIRCLE_WORKFLOW_ID:0:7} \
               --parameter-overrides ID="${CIRCLE_WORKFLOW_ID:0:7}"  
       - run:
-          name: Install tar utility
+          name: Install tar and gzip utility
           command: |
             yum install -y tar gzip
       - run:
@@ -191,14 +196,14 @@ jobs:
             --query 'Reservations[*].Instances[*].PublicIpAddress' \
             --filters "Name=tag:Name,Values=backend-${CIRCLE_WORKFLOW_ID:0:7}" \
             --output text >> inventory.txt
+            cat inventory.txt
       - persist_to_workspace:
           root: ~/
           paths:
             - project/.circleci/ansible/inventory.txt
       - destroy-environment:
           workflow_id: ${CIRCLE_WORKFLOW_ID:0:7}
-      - revert-migrations
-
+      
   configure-infrastructure:
     docker:
       - image: python:3.7-alpine3.11
@@ -212,17 +217,13 @@ jobs:
           name: Install dependencies
           command: |
             apk add --update ansible
-            # install aws cli
             apk add --no-cache \
                 python3 \
                 py3-pip \
             && pip3 install --upgrade pip \
             && pip3 install awscli 
-            echo 'aws cli version:'
-            aws --version
       - run:
           name: Configure server
-          # increase maximum job run time to 30 min since ansible playbook runs for >10 min
           no_output_timeout: 30m
           command: |
             cd .circleci/ansible
@@ -230,8 +231,7 @@ jobs:
       # rollback on failure
       - destroy-environment:
           workflow_id: ${CIRCLE_WORKFLOW_ID:0:7}
-      - revert-migrations
-
+          
   run-migrations:
     docker:
       - image: circleci/node:13.8.0
@@ -254,17 +254,13 @@ jobs:
             echo TYPEORM_PASSWORD=$TYPEORM_PASSWORD >> backend/.env
             echo TYPEORM_DATABASE=$TYPEORM_DATABASE >> backend/.env
             cat backend/.env
-      # install dependency aws cli
       - run:
           name: install dependencies
           command: |
             sudo apt-get update
-            sudo apt-get install --upgrade awscli
-            echo 'aws cli version:'
-            aws --version      
+            sudo apt-get install --upgrade awscli     
       - run:
           name: Run migrations
-          no_output_timeout: 30m
           command: |
             cd backend
             npm install
@@ -277,11 +273,6 @@ jobs:
           command: |
             cd backend
             aws s3 cp migrations_dump.txt s3://udapeople-migrations-dump-sj
-            pwd
-      - store_artifacts:
-          # TODO: testing
-          path: ~/project/backend/migrations_dump.txt
-          destination: migration-results
       - run:
           name: Check migration results
           command: |
@@ -292,7 +283,6 @@ jobs:
             then
               echo "No migrations are pending."
             fi
-      # Here's where you will add some code to rollback on failure 
       - destroy-environment:
           workflow_id: ${CIRCLE_WORKFLOW_ID:0:7}
       - revert-migrations 
@@ -313,9 +303,6 @@ jobs:
       - run:
           name: Get backend url
           command: |
-            # extract IP address from ansible inventory file
-            # cd .circleci/ansible
-            # BACKEND_IP=$(grep -Eo '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' inventory.txt)
             BACKEND_IP=$(aws ec2 describe-instances \
             --query 'Reservations[*].Instances[*].PublicIpAddress' \
             --filters "Name=tag:Name,Values=backend-${CIRCLE_WORKFLOW_ID:0:7}" --output text)
@@ -335,7 +322,6 @@ jobs:
             npm run build
             tar -czvf artifact-"${CIRCLE_WORKFLOW_ID:0:7}".tar.gz dist
             aws s3 cp dist s3://udapeople-${CIRCLE_WORKFLOW_ID:0:7} --recursive
-      # Here's where you will add some code to rollback on failure 
       - destroy-environment:
           workflow_id: ${CIRCLE_WORKFLOW_ID:0:7}
       - revert-migrations
@@ -364,12 +350,9 @@ jobs:
                 python3 \
                 py3-pip \
             && pip3 install --upgrade pip \
-            && pip3 install awscli 
-            echo 'aws cli version:'
-            aws --version
+            && pip3 install awscli
       - run:
           name: Deploy backend
-          # increase maximum job run time to 30 min since ansible playbook runs for >10 min
           no_output_timeout: 30m
           command: |
             cd backend
@@ -383,14 +366,13 @@ jobs:
             mv artifact.tar.gz .circleci/ansible/roles/deploy/files
             echo "Check inventory and execute ansible playbook"
             cd .circleci/ansible
-            echo "Contents of the inventory.txt file are -------"
+            echo "Contents  of the inventory.txt file is -------"
             cat inventory.txt
             ansible-playbook -i inventory.txt deploy-backend.yml
-      # Here's where you will add some code to rollback on failure  
       - destroy-environment:
           workflow_id: ${CIRCLE_WORKFLOW_ID:0:7}
       - revert-migrations
-
+      
   smoke-test:
     docker:
       - image: python:3.7-alpine3.11 
@@ -420,8 +402,10 @@ jobs:
             echo "${API_URL}"
             if curl "${API_URL}/api/status" | grep "ok"
             then
+                echo '***Inside if***'
                 return 0
             else
+                echo '***Inside else***'
                 return 1
             fi
       - run:
@@ -431,14 +415,20 @@ jobs:
             echo ${URL} 
             if curl -s ${URL} | grep "Welcome"
             then
-              return 0
+              # Change this to 0 after the job fails
+              echo 'curl URL successful - Welcome'
+              return 1
             else
               return 1
             fi
-      # Here's where you will add some code to rollback on failure 
+      - run:
+          name: Install AWS CLI for rollback
+          when: on_fail
+          command: |
+            apk add --update py3-pip && pip3 install --upgrade pip && pip3 install awscli            
       - destroy-environment:
           workflow_id: ${CIRCLE_WORKFLOW_ID:0:7}
-      - revert-migrations   
+      - revert-migrations 
 
 workflows:
   default:
@@ -448,7 +438,7 @@ workflows:
       - test-frontend:
           requires: [build-frontend]
       - test-backend:
-          requires: [build-backend]
+          requires: [build-backend]    
       - scan-frontend:
           requires: [build-frontend]
       - scan-backend:
@@ -465,6 +455,6 @@ workflows:
       - deploy-frontend:
           requires: [run-migrations]
       - deploy-backend:
-          requires: [run-migrations]
+          requires: [run-migrations]          
       - smoke-test:
           requires: [deploy-frontend, deploy-backend]
