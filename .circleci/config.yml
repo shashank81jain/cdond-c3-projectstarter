@@ -44,6 +44,7 @@ commands:
              cd ~/project/backend
              npm install
              npm run migrations:revert
+             aws s3 rm s3://udapeople-migrations-dump-sj --recursive
              echo 'Migration revert completed.'
             fi
             
