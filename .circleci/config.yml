@@ -17,6 +17,7 @@ commands:
             aws s3 rb --force s3://udapeople-<< parameters.workflow_id >>
             aws cloudformation delete-stack --stack-name udapeople-backend-<< parameters.workflow_id >>
             aws cloudformation delete-stack --stack-name udapeople-frontend-<< parameters.workflow_id >>
+            
   revert-migrations:
     description: Revert the last migration if successfully run in the current workflow.
     parameters:
@@ -29,21 +30,17 @@ commands:
             cd ~/project/backend
             # get dump from aws s3
             aws s3 cp s3://udapeople-migrations-dump-sj/migrations_dump.txt ./
-            # Curl command here to see if there was a successful migration associated with the workflow id, store result in SUCCESS variable
-            cat ~/project/backend/migrations_dump.txt
             if grep -q "has been executed successfully." ~/project/backend/migrations_dump.txt
-            then
-              SUCCESS=1
-            elif grep -q "No migrations are pending" ~/project/backend/migrations_dump.txt
             then
               SUCCESS=1
             fi
             if [ ${SUCCESS} == "1" ]
             then
+             echo 'Migration Revert start'
              cd ~/project/backend
              npm install
              npm run migrations:revert
-             echo "Migration revert completed."
+             echo 'Migration revert completed.'
             fi
             
 jobs:
@@ -391,7 +388,7 @@ jobs:
             echo 'aws cli version:'
             aws --version
             # install curl
-            apk add --update curl
+            apk add --update curl nodejs npm
       - run:
           name: Get backend url and run backend smoke test.
           command: |
