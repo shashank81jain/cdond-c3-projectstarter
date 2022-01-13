@@ -30,7 +30,11 @@ commands:
             cd ~/project/backend
             # get dump from aws s3
             aws s3 cp s3://udapeople-migrations-dump-sj/migrations_dump.txt ./
+            cat ~/project/backend/migrations_dump.txt
             if grep -q "has been executed successfully." ~/project/backend/migrations_dump.txt
+            then
+              SUCCESS=1
+            elif grep -q "No migrations are pending" ~/project/backend/migrations_dump.txt
             then
               SUCCESS=1
             fi
